@@ -1,6 +1,10 @@
 (() => {
   try {
-    if (!location.href.includes('/pages/laudo/construcao/cadastrarlaudo.xhtml')) return;
+    const allowedPaths = [
+      '/pages/laudo/construcao/cadastrarlaudo.xhtml',
+      '/pages/laudo/cadastrarlaudo.xhtml'
+    ];
+    if (!allowedPaths.some((path) => location.href.includes(path))) return;
 
     const BTN_CPF_ID = 'similCpfFillBtn';
     const BTN_EVAL_FILL_ID = 'similEvalFillBtn';

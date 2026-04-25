@@ -7,6 +7,7 @@
     if (!allowedPaths.some((path) => location.href.includes(path))) return;
 
     const BTN_CPF_ID = 'similCpfFillBtn';
+    const BTN_DOC_REPLICATE_ID = 'similDocReplicateBtn';
     const BTN_EVAL_FILL_ID = 'similEvalFillBtn';
     const BTN_EVAL_CLEAR_ID = 'similEvalClearBtn';
     const TOAST_ID = 'similCpfToast';
@@ -20,6 +21,56 @@
       { group: 'Liquidez', option: 'Sem Destaque' }
     ];
 
+    const DOC_FIELD_GROUPS = [
+      {
+        key: 'art',
+        name: 'ART',
+        aliases: ['ART', 'ART/RRT'],
+        attrTokens: ['art', 'artrrt']
+      },
+      {
+        key: 'responsavel',
+        name: 'Respons. tec.',
+        aliases: ['Respons. tec', 'Respons. técnico', 'Respons tecnico', 'Responsável tec', 'Responsável técnico', 'Responsavel tecnico'],
+        attrTokens: ['responstec', 'responstecnico', 'resptecnico', 'responsaveltec', 'responsaveltecnico']
+      },
+      {
+        key: 'cpf',
+        name: 'CPF',
+        aliases: ['CPF'],
+        attrTokens: ['cpf']
+      },
+      {
+        key: 'entidade',
+        name: 'Entidade',
+        aliases: ['Entidade'],
+        attrTokens: ['entidade']
+      },
+      {
+        key: 'registro',
+        name: 'Número de Registro',
+        aliases: ['Número de Registro', 'Numero de Registro', 'Número do Registro', 'Numero do Registro', 'Número Registro', 'Numero Registro', 'Nº de Registro', 'N° de Registro'],
+        attrTokens: ['numeroregistro', 'numregistro', 'nroregistro']
+      }
+    ];
+
+    const DOC_PROJECT_TARGETS = [
+      { name: 'Projeto Arquitetônico', aliases: ['Projeto Arquitetônico', 'Projeto Arquitetonico'] },
+      { name: 'Projeto Estrutural', aliases: ['Projeto Estrutural'] },
+      { name: 'Projeto Elétrico', aliases: ['Projeto Elétrico', 'Projeto Eletrico'] },
+      { name: 'Projeto Hidrossanitário', aliases: ['Projeto Hidrossanitário', 'Projeto Hidrossanitario'] },
+      { name: 'Projeto de Impermeabilização', aliases: ['Projeto de Impermeabilização', 'Projeto de Impermeabilizacao'] }
+    ];
+
+    const DOC_PROJECT_EXCLUDED_ALIASES = [
+      'Outros Projetos, Vide inform. complementares',
+      'Outros Projetos Vide inform complementares',
+      'Outros Projetos'
+    ];
+
+    const VALUE_FIELD_SELECTOR = 'input:not([type]), input[type="text"], input[type="search"], input[type="tel"], textarea, select';
+    const PROJECT_TITLE_SELECTOR = 'label, span, div, td, th, strong, b, legend';
+
     const normalizeText = (value) =>
       (value || '')
         .normalize('NFD')
@@ -28,7 +79,25 @@
         .trim()
         .toLowerCase();
 
+    const normalizeFieldLabel = (value) =>
+      normalizeText(value)
+        .replace(/n[º°]/g, 'numero')
+        .replace(/[.:;*]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const normalizeAttr = (value) =>
+      normalizeText(value)
+        .replace(/n[º°]/g, 'numero')
+        .replace(/[^a-z0-9]/g, '');
+
     const uniqueElements = (items) => [...new Set(items.filter(Boolean))];
+
+    const sortByDocumentOrder = (items) =>
+      [...items].sort((a, b) => {
+        if (a === b) return 0;
+        return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+      });
 
     const isVisible = (el) => {
       if (!el) return false;
@@ -84,6 +153,210 @@
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       el.dispatchEvent(new Event('blur', { bubbles: true }));
+    };
+
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const isValueField = (el) => {
+      if (!el?.matches?.(VALUE_FIELD_SELECTOR)) return false;
+      const type = normalizeText(el.type || '');
+      return !['hidden', 'radio', 'checkbox', 'button', 'submit', 'reset'].includes(type);
+    };
+
+    const fieldValue = (el) => String(el?.value || '').trim();
+
+    const labelMatches = (value, aliases) => {
+      const text = normalizeFieldLabel(value);
+      if (!text) return false;
+
+      return aliases.some((alias) => {
+        const expected = normalizeFieldLabel(alias);
+        return text === expected || (text.startsWith(`${expected} `) && text.length <= expected.length + 12);
+      });
+    };
+
+    const getLabelCandidates = (root, aliases, selector = 'label, span, div, td, th') =>
+      [...root.querySelectorAll(selector)]
+        .filter(isVisible)
+        .filter((el) => labelMatches(el.textContent, aliases));
+
+    const getValueFields = (container) =>
+      container ? [...container.querySelectorAll(VALUE_FIELD_SELECTOR)].filter(isValueField).filter(isVisible) : [];
+
+    const pickFieldAfterLabel = (labelLike, fields) =>
+      fields.find((field) => labelLike.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING)
+      || fields[0]
+      || null;
+
+    const fieldFromForAttribute = (labelLike, scope) => {
+      const labelWithFor = labelLike.matches?.('label[for]')
+        ? labelLike
+        : labelLike.closest?.('label[for]');
+
+      if (!labelWithFor?.htmlFor) return null;
+
+      const target = document.getElementById(labelWithFor.htmlFor)
+        || scope.querySelector(`#${escapeCss(labelWithFor.htmlFor)}`);
+
+      return isValueField(target) && isVisible(target) ? target : null;
+    };
+
+    const getValueFieldForLabelLike = (labelLike, scope) => {
+      if (!labelLike) return null;
+
+      const directTarget = fieldFromForAttribute(labelLike, scope);
+      if (directTarget) return directTarget;
+
+      if (isValueField(labelLike) && isVisible(labelLike)) return labelLike;
+
+      const directField = getValueFields(labelLike)[0];
+      if (directField) return directField;
+
+      const cell = labelLike.closest?.('td, th, .ui-panelgrid-cell');
+      const nextCell = cell?.nextElementSibling;
+      const nextCellField = getValueFields(nextCell)[0];
+      if (nextCellField) return nextCellField;
+
+      const row = labelLike.closest?.('tr');
+      const rowField = pickFieldAfterLabel(labelLike, getValueFields(row));
+      if (rowField) return rowField;
+
+      let current = labelLike.parentElement;
+      for (let level = 0; level < 6 && current && current !== scope; level += 1) {
+        const field = pickFieldAfterLabel(labelLike, getValueFields(current));
+        if (field) return field;
+        current = current.parentElement;
+      }
+
+      return null;
+    };
+
+    const findFieldsByAttributes = (root, tokens) =>
+      [...root.querySelectorAll(VALUE_FIELD_SELECTOR)]
+        .filter(isValueField)
+        .filter(isVisible)
+        .filter((field) => {
+          const attr = normalizeAttr(`${field.id || ''} ${field.name || ''} ${field.getAttribute('aria-label') || ''} ${field.title || ''}`);
+          return tokens.some((token) => attr.includes(normalizeAttr(token)));
+        });
+
+    const findDocFields = (root, group) => {
+      const byLabel = getLabelCandidates(root, group.aliases)
+        .map((label) => getValueFieldForLabelLike(label, root));
+      const labelFields = sortByDocumentOrder(uniqueElements(byLabel));
+      if (labelFields.length) return labelFields;
+
+      return sortByDocumentOrder(uniqueElements(findFieldsByAttributes(root, group.attrTokens)));
+    };
+
+    const getProjectTitleCandidates = (root) => {
+      const includedAliases = DOC_PROJECT_TARGETS.flatMap((project) => project.aliases);
+      const candidates = [
+        ...getLabelCandidates(root, includedAliases, PROJECT_TITLE_SELECTOR).map((el) => ({ el, excluded: false })),
+        ...getLabelCandidates(root, DOC_PROJECT_EXCLUDED_ALIASES, PROJECT_TITLE_SELECTOR).map((el) => ({ el, excluded: true }))
+      ];
+
+      return sortByDocumentOrder(uniqueElements(candidates.map((candidate) => candidate.el)))
+        .map((el) => candidates.find((candidate) => candidate.el === el));
+    };
+
+    const getProjectTitleBefore = (field, root) => {
+      const titles = getProjectTitleCandidates(root)
+        .filter(({ el }) => el.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+      return titles[titles.length - 1] || null;
+    };
+
+    const getDocFieldsForReplication = (root, group) => {
+      const fields = findDocFields(root, group)
+        .filter((field) => !getProjectTitleBefore(field, root)?.excluded);
+
+      const maxFields = DOC_PROJECT_TARGETS.length + 1;
+      return fields.length > maxFields ? fields.slice(0, maxFields) : fields;
+    };
+
+    const getDocFinalizationRoot = () => {
+      const idCandidates = [
+        'formCadastro-tab-finalizacao',
+        'formCadastro-tab-docFinalizacao',
+        'formCadastro-tab-docfinalizacao',
+        'formCadastro-tab-documentacao',
+        'formCadastro-tab-docs'
+      ];
+
+      for (const id of idCandidates) {
+        const panel = document.getElementById(id);
+        if (panel && isVisible(panel) && !panel.classList.contains('ui-helper-hidden')) return panel;
+      }
+
+      const docPanelCandidates = [...document.querySelectorAll('fieldset, table, tbody, div, form')]
+        .filter(isVisible)
+        .filter((el) => {
+          const text = normalizeFieldLabel(el.textContent);
+          return text.includes(normalizeFieldLabel('ART/RRT/TRT de Execução'))
+            && text.includes(normalizeFieldLabel('Projetos Apresentados'));
+        })
+        .sort((a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length);
+
+      return docPanelCandidates[0] || document;
+    };
+
+    const positiveRadioScore = (radio) => {
+      const radioId = radio.id || '';
+      const labelByFor = radioId
+        ? [...document.querySelectorAll('label[for]')].find((label) => label.htmlFor === radioId)
+        : null;
+      const parentText = normalizeFieldLabel(radio.parentElement?.textContent);
+      const labelText = [
+        radio.value,
+        radio.getAttribute('aria-label'),
+        radio.title,
+        labelByFor?.textContent,
+        radio.closest('label')?.textContent,
+        radio.nextElementSibling?.textContent,
+        parentText.length <= 24 ? parentText : ''
+      ].map(normalizeFieldLabel).join(' ');
+
+      if (/\b(sim|s|yes|true|1)\b/.test(labelText)) return 2;
+      if (/\b(nao|n|no|false|0)\b/.test(labelText)) return -2;
+      return 0;
+    };
+
+    const pickEnablingRadio = (radios) => {
+      const enabledRadios = radios.filter((radio) => !radio.disabled);
+      if (!enabledRadios.length) return null;
+      return enabledRadios.find((radio) => positiveRadioScore(radio) > 0)
+        || enabledRadios.find((radio) => positiveRadioScore(radio) >= 0)
+        || enabledRadios[0];
+    };
+
+    const findRadioNearField = (field, scope) => {
+      let current = field?.parentElement;
+      for (let level = 0; level < 7 && current && current !== scope; level += 1) {
+        const radios = [...current.querySelectorAll('input[type="radio"]')];
+        const radio = pickEnablingRadio(radios);
+        if (radio) return radio;
+        current = current.parentElement;
+      }
+
+      const row = field?.closest?.('tr');
+      return pickEnablingRadio(row ? [...row.querySelectorAll('input[type="radio"]')] : []);
+    };
+
+    const formatValueForGroup = (group, value) => {
+      if (group.key !== 'cpf') return value;
+      const digits = value.replace(/\D/g, '');
+      return digits.length === 11 ? digits : value;
+    };
+
+    const setValueField = (field, value) => {
+      if (!field || field.disabled || field.readOnly) return false;
+      if (field.value === value) return false;
+
+      field.focus();
+      field.value = value;
+      dispatchValueEvents(field);
+      return true;
     };
 
     const findCpfInputsVisible = () => {
@@ -201,6 +474,158 @@
       } catch (_) { }
 
       return !!radio.checked;
+    };
+
+    const getRadiosNearProjectTitle = (title, root) => {
+      const directRadio = getRadioForLabelLike(title, root);
+      if (directRadio) return [directRadio];
+
+      let current = title.parentElement;
+      for (let level = 0; level < 5 && current && current !== root; level += 1) {
+        const radios = [...current.querySelectorAll('input[type="radio"]')];
+        if (radios.length && radios.length <= 4) return radios;
+        current = current.parentElement;
+      }
+
+      return [];
+    };
+
+    const findProjectRadio = (root, project) => {
+      const titles = getLabelCandidates(root, project.aliases, PROJECT_TITLE_SELECTOR);
+
+      for (const title of titles) {
+        const radio = pickEnablingRadio(getRadiosNearProjectTitle(title, root));
+        if (radio) return { radio, clickTarget: title };
+      }
+
+      return null;
+    };
+
+    const activateProjectDocRadios = async () => {
+      const touched = new Set();
+      let activated = 0;
+
+      for (const project of DOC_PROJECT_TARGETS) {
+        const currentRoot = getDocFinalizationRoot();
+        const match = findProjectRadio(currentRoot, project);
+        const radio = match?.radio;
+
+        if (!radio || touched.has(radio) || radio.disabled) continue;
+
+        const wasChecked = radio.checked;
+        touched.add(radio);
+        if (activateRadio(radio, match.clickTarget)) {
+          if (!wasChecked) activated += 1;
+          await delay(wasChecked ? 100 : 650);
+        }
+      }
+
+      for (const group of DOC_FIELD_GROUPS) {
+        const currentRoot = getDocFinalizationRoot();
+        for (const field of getDocFieldsForReplication(currentRoot, group)) {
+          if (!field.disabled && !field.readOnly) continue;
+
+          const radio = findRadioNearField(field, currentRoot);
+          if (!radio || touched.has(radio) || radio.disabled) continue;
+
+          touched.add(radio);
+          const wasChecked = radio.checked;
+          if (activateRadio(radio, radio)) {
+            if (!wasChecked) activated += 1;
+            await delay(wasChecked ? 100 : 650);
+          }
+        }
+      }
+
+      return activated;
+    };
+
+    const fillDocFinalizationFromFirstValues = (root) => {
+      const missing = [];
+      let fieldsFilled = 0;
+      let groupsFilled = 0;
+      let lockedFields = 0;
+      let targetFields = 0;
+      let filledTargets = 0;
+      let emptyTargets = 0;
+
+      DOC_FIELD_GROUPS.forEach((group) => {
+        const fields = getDocFieldsForReplication(root, group);
+        if (fields.length < 2) {
+          missing.push(group.name);
+          return;
+        }
+
+        const sourceIndex = fields.findIndex((field) => fieldValue(field));
+        if (sourceIndex < 0) {
+          missing.push(`${group.name} sem valor`);
+          return;
+        }
+
+        const value = formatValueForGroup(group, fieldValue(fields[sourceIndex]));
+        let filledInGroup = 0;
+
+        fields.slice(sourceIndex + 1).forEach((field) => {
+          targetFields += 1;
+
+          if (field.disabled || field.readOnly) {
+            lockedFields += 1;
+            return;
+          }
+
+          if (setValueField(field, value)) {
+            fieldsFilled += 1;
+            filledInGroup += 1;
+          }
+
+          if (fieldValue(field)) {
+            filledTargets += 1;
+          } else {
+            emptyTargets += 1;
+          }
+        });
+
+        if (filledInGroup) groupsFilled += 1;
+      });
+
+      return { fieldsFilled, groupsFilled, lockedFields, targetFields, filledTargets, emptyTargets, missing };
+    };
+
+    const replicateDocFinalization = async () => {
+      if (window.__SIMIL_DOC_REPLICATING__) return;
+      window.__SIMIL_DOC_REPLICATING__ = true;
+
+      try {
+        const radiosActivated = await activateProjectDocRadios();
+        let totalFieldsFilled = 0;
+        let finalResult = null;
+
+        for (let attempt = 0; attempt < 7; attempt += 1) {
+          if (attempt > 0) await delay(350);
+
+          finalResult = fillDocFinalizationFromFirstValues(getDocFinalizationRoot());
+          totalFieldsFilled += finalResult.fieldsFilled;
+
+          if (finalResult.targetFields && !finalResult.lockedFields && !finalResult.emptyTargets) break;
+        }
+
+        if (finalResult?.filledTargets) {
+          const radioText = radiosActivated ? ` Rádios ativados: ${radiosActivated}.` : '';
+          const changedText = totalFieldsFilled ? ` Atualizados: ${totalFieldsFilled}.` : '';
+          const lockedText = finalResult.lockedFields ? ` ${finalResult.lockedFields} campo(s) ainda bloqueado(s).` : '';
+          toast(`Doc./Finalização replicada (${finalResult.filledTargets}/${finalResult.targetFields}).${changedText}${radioText}${lockedText}`);
+          return;
+        }
+
+        if (radiosActivated) {
+          toast(`Ativei ${radiosActivated} rádio(s), mas não encontrei valores para replicar.`);
+          return;
+        }
+
+        toast('Não encontrei dados preenchidos na aba Doc./Finalização.');
+      } finally {
+        window.__SIMIL_DOC_REPLICATING__ = false;
+      }
     };
 
     const findGroupContainers = (root, groupTitle, desiredOption) => {
@@ -354,6 +779,16 @@
       });
 
       ensureButton({
+        id: BTN_DOC_REPLICATE_ID,
+        text: 'Replicar Doc.',
+        title: 'Atalho: Alt+D',
+        bottom: 64,
+        right: 16,
+        onClick: replicateDocFinalization,
+        background: '#6f42c1'
+      });
+
+      ensureButton({
         id: BTN_EVAL_FILL_ID,
         text: 'Preencher Espec.',
         title: 'Preenche a aba Espec. da Avaliação',
@@ -399,6 +834,11 @@
         if (e.altKey && (e.key === 'v' || e.key === 'V')) {
           e.preventDefault();
           fillAllCpfs();
+        }
+
+        if (e.altKey && (e.key === 'd' || e.key === 'D')) {
+          e.preventDefault();
+          replicateDocFinalization();
         }
       }, true);
     }

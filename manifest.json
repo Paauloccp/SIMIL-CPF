@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "SIMIL CAIXA - Utilidades",
-  "version": "1.1.1",
-  "description": "Preenche CPFs e replica dados recorrentes no SIMIL da CAIXA.",
+  "version": "1.1.2",
+  "description": "Preenche CPFs, replica dados recorrentes e completa campos vazios no SIMIL da CAIXA.",
   "content_scripts": [
     {
       "matches": [

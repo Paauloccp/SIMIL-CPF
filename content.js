@@ -8,6 +8,7 @@
 
     const BTN_CPF_ID = 'similCpfFillBtn';
     const BTN_DOC_REPLICATE_ID = 'similDocReplicateBtn';
+    const BTN_INTERNAL_DIVISION_ZERO_ID = 'similInternalDivisionZeroBtn';
     const BTN_EVAL_FILL_ID = 'similEvalFillBtn';
     const BTN_EVAL_CLEAR_ID = 'similEvalClearBtn';
     const TOAST_ID = 'similCpfToast';
@@ -68,7 +69,7 @@
       'Outros Projetos'
     ];
 
-    const VALUE_FIELD_SELECTOR = 'input:not([type]), input[type="text"], input[type="search"], input[type="tel"], textarea, select';
+    const VALUE_FIELD_SELECTOR = 'input:not([type]), input[type="text"], input[type="search"], input[type="tel"], input[type="number"], textarea, select';
     const PROJECT_TITLE_SELECTOR = 'label, span, div, td, th, strong, b, legend';
 
     const normalizeText = (value) =>
@@ -119,7 +120,7 @@
         t.style.cssText = `
           position: fixed;
           right: 16px;
-          bottom: 160px;
+          bottom: 260px;
           z-index: 2147483647;
           background: rgba(0,0,0,.82);
           color: #fff;
@@ -357,6 +358,46 @@
       field.value = value;
       dispatchValueEvents(field);
       return true;
+    };
+
+    const getInternalDivisionRoot = () => {
+      const legend = [...document.querySelectorAll('legend, fieldset > div, fieldset > span, strong, b')]
+        .filter(isVisible)
+        .find((el) => normalizeFieldLabel(el.textContent) === normalizeFieldLabel('Divisão Interna'));
+
+      const fieldset = legend?.closest?.('fieldset');
+      if (fieldset) return fieldset;
+
+      const candidates = [...document.querySelectorAll('fieldset, div, table, form')]
+        .filter(isVisible)
+        .filter((el) => normalizeFieldLabel(el.textContent).includes(normalizeFieldLabel('Divisão Interna')))
+        .sort((a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length);
+
+      return candidates[0] || null;
+    };
+
+    const fillEmptyInternalDivisionWithZero = () => {
+      const root = getInternalDivisionRoot();
+      if (!root) {
+        toast('Não encontrei o quadro Divisão Interna.');
+        return;
+      }
+
+      const fields = [...root.querySelectorAll('input:not([type]), input[type="text"], input[type="tel"], input[type="number"]')]
+        .filter(isVisible)
+        .filter((field) => !field.disabled && !field.readOnly);
+
+      let filled = 0;
+      fields.forEach((field) => {
+        if (/\d/.test(fieldValue(field))) return;
+        if (setValueField(field, '0')) filled += 1;
+      });
+
+      if (filled) {
+        toast(`Preenchi ${filled} campo(s) vazio(s) da Divisão Interna com 0.`);
+      } else {
+        toast('Todos os campos da Divisão Interna já têm número.');
+      }
     };
 
     const findCpfInputsVisible = () => {
@@ -782,10 +823,20 @@
         id: BTN_DOC_REPLICATE_ID,
         text: 'Replicar Doc.',
         title: 'Atalho: Alt+D',
-        bottom: 64,
+        bottom: 160,
         right: 16,
         onClick: replicateDocFinalization,
         background: '#6f42c1'
+      });
+
+      ensureButton({
+        id: BTN_INTERNAL_DIVISION_ZERO_ID,
+        text: 'Zerar Divisão',
+        title: 'Atalho: Alt+Z',
+        bottom: 208,
+        right: 16,
+        onClick: fillEmptyInternalDivisionWithZero,
+        background: '#0d9488'
       });
 
       ensureButton({
@@ -839,6 +890,11 @@
         if (e.altKey && (e.key === 'd' || e.key === 'D')) {
           e.preventDefault();
           replicateDocFinalization();
+        }
+
+        if (e.altKey && (e.key === 'z' || e.key === 'Z')) {
+          e.preventDefault();
+          fillEmptyInternalDivisionWithZero();
         }
       }, true);
     }

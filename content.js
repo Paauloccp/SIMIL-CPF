@@ -9,6 +9,7 @@
     const BTN_CPF_ID = 'similCpfFillBtn';
     const BTN_DOC_REPLICATE_ID = 'similDocReplicateBtn';
     const BTN_INTERNAL_DIVISION_ZERO_ID = 'similInternalDivisionZeroBtn';
+    const BTN_AREA_ZERO_ID = 'similAreaZeroBtn';
     const BTN_EVAL_FILL_ID = 'similEvalFillBtn';
     const BTN_EVAL_CLEAR_ID = 'similEvalClearBtn';
     const TOAST_ID = 'similCpfToast';
@@ -120,7 +121,7 @@
         t.style.cssText = `
           position: fixed;
           right: 16px;
-          bottom: 260px;
+          bottom: 308px;
           z-index: 2147483647;
           background: rgba(0,0,0,.82);
           color: #fff;
@@ -397,6 +398,46 @@
         toast(`Preenchi ${filled} campo(s) vazio(s) da Divisão Interna com 0.`);
       } else {
         toast('Todos os campos da Divisão Interna já têm número.');
+      }
+    };
+
+    const getConstructionAreasRoot = () => {
+      const legend = [...document.querySelectorAll('legend, fieldset > div, fieldset > span, strong, b')]
+        .filter(isVisible)
+        .find((el) => normalizeFieldLabel(el.textContent) === normalizeFieldLabel('Áreas de Construção'));
+
+      const fieldset = legend?.closest?.('fieldset');
+      if (fieldset) return fieldset;
+
+      const candidates = [...document.querySelectorAll('fieldset, div, table, form')]
+        .filter(isVisible)
+        .filter((el) => normalizeFieldLabel(el.textContent).includes(normalizeFieldLabel('Áreas de Construção')))
+        .sort((a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length);
+
+      return candidates[0] || null;
+    };
+
+    const fillEmptyConstructionAreasWithZero = () => {
+      const root = getConstructionAreasRoot();
+      if (!root) {
+        toast('Não encontrei o quadro Áreas de Construção.');
+        return;
+      }
+
+      const fields = [...root.querySelectorAll('input:not([type]), input[type="text"], input[type="tel"], input[type="number"]')]
+        .filter(isVisible)
+        .filter((field) => !field.disabled && !field.readOnly);
+
+      let filled = 0;
+      fields.forEach((field) => {
+        if (/\d/.test(fieldValue(field))) return;
+        if (setValueField(field, '0,00')) filled += 1;
+      });
+
+      if (filled) {
+        toast(`Preenchi ${filled} campo(s) vazio(s) de Áreas de Construção com 0,00.`);
+      } else {
+        toast('Todos os campos de Áreas de Construção já têm número.');
       }
     };
 
@@ -840,6 +881,16 @@
       });
 
       ensureButton({
+        id: BTN_AREA_ZERO_ID,
+        text: 'Zerar Áreas',
+        title: 'Atalho: Alt+A',
+        bottom: 256,
+        right: 16,
+        onClick: fillEmptyConstructionAreasWithZero,
+        background: '#475569'
+      });
+
+      ensureButton({
         id: BTN_EVAL_FILL_ID,
         text: 'Preencher Espec.',
         title: 'Preenche a aba Espec. da Avaliação',
@@ -895,6 +946,11 @@
         if (e.altKey && (e.key === 'z' || e.key === 'Z')) {
           e.preventDefault();
           fillEmptyInternalDivisionWithZero();
+        }
+
+        if (e.altKey && (e.key === 'a' || e.key === 'A')) {
+          e.preventDefault();
+          fillEmptyConstructionAreasWithZero();
         }
       }, true);
     }
